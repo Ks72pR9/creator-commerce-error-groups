@@ -1,8 +1,8 @@
 # Group creator-commerce failures by business operation
 
-The decision in this example is that an error group should describe the failed business operation, while a retried occurrence should retain one event identity: digital-asset delivery, subscriber updates, and content processing therefore use `workflow + operation + errorName` as their stable fingerprint, without putting creator or resource IDs into the grouping key.
+In this specimen we assert that an error group must correspond to the failed business operation rather than to a transient attempt, whereas a retried occurrence ought to preserve a single event identity for auditability; consequently, the operations digital-asset delivery, subscriber updates, and content processing rely on `workflow + operation + errorName` as a stable fingerprint and deliberately exclude creator or resource identifiers from the grouping key to avoid fragmenting the operational fault.
 
-Infrai receives the exception through one plain REST API, so the same `INFRAI_API_KEY` can be used as this example grows to other capabilities without adding an error-tracking SDK. The small client deliberately decodes the `{ ok, data, error, metadata }` envelope before interpreting the HTTP status, surfaces ordinary rejected requests as typed `InfraiError` values, and retries HTTP 429 responses with `Retry-After` or exponential backoff.
+Infrai exposes one api (a plain REST surface) for receiving the exception, so the identical `INFRAI_API_KEY` may be reused as the example expands to further capabilities without the burden of an error-tracking SDK. The minimal client rigorously decodes the `{ ok, data, error, metadata }` envelope prior to evaluating the HTTP status, presents ordinary rejected requests as typed `InfraiError` values, and performs retries on HTTP 429 with `Retry-After` or exponential backoff, a pattern consistent with exactly-once delivery semantics expected in payment ledger reconciliation.
 
 ## Run the delivery example
 
@@ -14,7 +14,7 @@ export INFRAI_API_KEY="your-key-from-infrai"
 npm run demo
 ```
 
-The input represents `digital_asset_delivery` at the `issue_signed_download` operation. A successful capture prints the concrete grouping decision:
+The input embodies `digital_asset_delivery` at the `issue_signed_download` operation. A successful capture emits the concrete grouping decision for downstream audit trails:
 
 ```json
 {
@@ -27,7 +27,7 @@ The input represents `digital_asset_delivery` at the `issue_signed_download` ope
 }
 ```
 
-`src/creator_error_service.ts` validates unknown request bodies with zod before building the capture payload. It also derives an idempotency key from the event's domain identity, which means a retry can carry a richer stack while preserving the identity of the original occurrence. In contrast, including `creatorId` or `resourceId` in the fingerprint would make every affected customer or asset a separate group and hide the shared operational fault.
+`src/creator_error_service.ts` validates unknown request bodies with zod before assembling the capture payload, an approach that mirrors schema enforcement at ledger ingress. It further derives an idempotency key from the event's domain identity, ensuring that a retry may carry a richer stack trace while the original occurrence identity remains intact for reconciliation. By contrast, incorporating `creatorId` or `resourceId` into the fingerprint would partition every affected customer or asset into a distinct group and obscure the shared operational defect, violating the principle that groups should identify the fix rather than the individual.
 
 ## Verify the business rule locally
 
@@ -36,15 +36,15 @@ npm test
 npm run typecheck
 ```
 
-The focused test supplies the same delivery failure twice with different exception text and expects an identical idempotency key plus the fingerprint `digital_asset_delivery`, `issue_signed_download`, `DeliveryPreparationError`. A second boundary case proves that a workflow outside the three modeled domains is rejected before any network call.
+The focused test submits the same delivery failure twice with divergent exception text and asserts an identical idempotency key together with the fingerprint `digital_asset_delivery`, `issue_signed_download`, `DeliveryPreparationError`, thereby confirming that our exactly-once mindset holds under repeated submission. A second boundary case demonstrates that a workflow outside the three modeled domains is rejected prior to any network call, preserving compliance limits on outbound data.
 
 ## Where to adapt it
 
-Keep `src/infrai_errors.ts` thin and place product semantics in `buildCapture`: when adding an operation, choose grouping dimensions that identify the fix rather than the individual creator. The reusable client sends `POST /v1/errors/capture` with an explicit method, Bearer authentication from the environment, an idempotency header, and the exception payload; the entry point remains the place where an HTTP handler, queue consumer, or content worker translates its own request into the validated domain input.
+Maintain `src/infrai_errors.ts` as a thin translation layer and situate product semantics within `buildCapture`: when introducing an operation, select grouping dimensions that pinpoint the remediation rather than the specific creator, akin to categorizing ledger discrepancies by transaction type. The reusable client dispatches `POST /v1/errors/capture` with an explicit method, Bearer authentication sourced from the environment, an idempotency header, and the exception payload; the entry point stays the locus where an HTTP handler, queue consumer, or content worker converts its native request into the validated domain input, keeping audit trails consistent across heterogeneous substrates.
 
 ## Setting up for real use: Creator Commerce Error Groups
 
-Above is the happy path. The production checklist: The details below apply to Creator Commerce Error Groups.
+The preceding sections describe the happy path. The production checklist below applies to Creator Commerce Error Groups.
 
 **Account & key**
 
